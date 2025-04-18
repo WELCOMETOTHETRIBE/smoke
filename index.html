@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Smoke Trail - Turbulence Boost</title>
+  <title>Billowing Smoke Trail</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     html, body {
@@ -11,7 +11,6 @@
       background: #000;
       overflow: hidden;
     }
-
     canvas {
       display: block;
     }
@@ -22,7 +21,6 @@
   <script>
     const canvas = document.getElementById('smokeCanvas');
     const ctx = canvas.getContext('2d');
-
     let width = window.innerWidth;
     let height = window.innerHeight;
     canvas.width = width;
@@ -40,21 +38,21 @@
 
     function createParticle(x, y, vx, vy) {
       const angle = Math.random() * 2 * Math.PI;
-      const turbulence = Math.random() * 1.5;
+      const turbulence = Math.random() * 0.5;
       return {
         x,
         y,
         vx: vx + Math.cos(angle) * turbulence,
         vy: vy + Math.sin(angle) * turbulence,
-        alpha: 1,
-        size: 20 + Math.random() * 25,
-        swirl: Math.random() * 0.4 - 0.2
+        alpha: 0.5 + Math.random() * 0.3,
+        size: 60 + Math.random() * 40,
+        decay: 0.003 + Math.random() * 0.002
       };
     }
 
     function drawParticle(p) {
       const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
-      gradient.addColorStop(0, `rgba(200, 200, 200, ${p.alpha})`);
+      gradient.addColorStop(0, `rgba(180, 180, 180, ${p.alpha})`);
       gradient.addColorStop(1, `rgba(0, 0, 0, 0)`);
       ctx.fillStyle = gradient;
       ctx.beginPath();
@@ -63,18 +61,18 @@
     }
 
     function animate() {
-      ctx.clearRect(0, 0, width, height);
+      // Fade the canvas slightly instead of clearing it
+      ctx.fillStyle = "rgba(0, 0, 0, 0.1)";
+      ctx.fillRect(0, 0, width, height);
+
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
-        // Add swirling effect
-        const angle = Math.atan2(p.vy, p.vx) + p.swirl;
-        const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-        p.vx = Math.cos(angle) * speed;
-        p.vy = Math.sin(angle) * speed;
-
+        p.vx *= 0.97; // drag
+        p.vy *= 0.97;
         p.x += p.vx;
         p.y += p.vy;
-        p.alpha -= 0.012;
+        p.alpha -= p.decay;
+
         if (p.alpha <= 0) {
           particles.splice(i, 1);
         } else {
@@ -91,15 +89,11 @@
       if (lastX !== null && lastY !== null) {
         const dx = x - lastX;
         const dy = y - lastY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const steps = Math.max(2, Math.floor(dist / 5));
-        for (let i = 0; i < steps; i++) {
-          const t = i / steps;
-          const px = lastX + dx * t;
-          const py = lastY + dy * t;
-          const vx = dx * 0.1;
-          const vy = dy * 0.1;
-          particles.push(createParticle(px, py, vx, vy));
+        const vx = dx * 0.1;
+        const vy = dy * 0.1;
+        // Just 1 or 2 big particles for smooth billow
+        for (let i = 0; i < 2; i++) {
+          particles.push(createParticle(x, y, vx, vy));
         }
       }
 
