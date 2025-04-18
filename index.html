@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Billowing Smoke Trail</title>
+  <title>Chaotic Billowing Smoke</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     html, body {
@@ -36,23 +36,25 @@
     const particles = [];
     let lastX = null, lastY = null;
 
-    function createParticle(x, y, vx, vy) {
-      const angle = Math.random() * 2 * Math.PI;
-      const turbulence = Math.random() * 0.5;
+    function createParticle(x, y) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 2 + 0.5;
       return {
         x,
         y,
-        vx: vx + Math.cos(angle) * turbulence,
-        vy: vy + Math.sin(angle) * turbulence,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
         alpha: 0.5 + Math.random() * 0.3,
-        size: 60 + Math.random() * 40,
-        decay: 0.003 + Math.random() * 0.002
+        size: 40 + Math.random() * 40,
+        swirlFactor: Math.random() * 0.1 - 0.05,
+        age: 0,
+        decay: 0.002 + Math.random() * 0.002
       };
     }
 
     function drawParticle(p) {
       const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
-      gradient.addColorStop(0, `rgba(180, 180, 180, ${p.alpha})`);
+      gradient.addColorStop(0, `rgba(200, 200, 200, ${p.alpha})`);
       gradient.addColorStop(1, `rgba(0, 0, 0, 0)`);
       ctx.fillStyle = gradient;
       ctx.beginPath();
@@ -61,24 +63,29 @@
     }
 
     function animate() {
-      // Fade the canvas slightly instead of clearing it
-      ctx.fillStyle = "rgba(0, 0, 0, 0.1)";
+      ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
       ctx.fillRect(0, 0, width, height);
 
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
-        p.vx *= 0.97; // drag
-        p.vy *= 0.97;
+
+        // Add twirl and chaos via sinusoidal swirl and subtle expansion
+        const swirl = Math.sin(p.age * 0.05) * p.swirlFactor * 50;
+        p.vx += swirl;
+        p.vy += swirl;
+
         p.x += p.vx;
         p.y += p.vy;
+        p.age++;
         p.alpha -= p.decay;
 
-        if (p.alpha <= 0) {
+        if (p.alpha <= 0 || p.x < 0 || p.x > width || p.y < 0 || p.y > height) {
           particles.splice(i, 1);
         } else {
           drawParticle(p);
         }
       }
+
       requestAnimationFrame(animate);
     }
 
@@ -86,30 +93,15 @@
       const x = e.touches ? e.touches[0].clientX : e.clientX;
       const y = e.touches ? e.touches[0].clientY : e.clientY;
 
-      if (lastX !== null && lastY !== null) {
-        const dx = x - lastX;
-        const dy = y - lastY;
-        const vx = dx * 0.1;
-        const vy = dy * 0.1;
-        // Just 1 or 2 big particles for smooth billow
-        for (let i = 0; i < 2; i++) {
-          particles.push(createParticle(x, y, vx, vy));
-        }
+      for (let i = 0; i < 3; i++) {
+        particles.push(createParticle(x, y));
       }
 
       lastX = x;
       lastY = y;
     }
 
-    function endSmoke() {
-      lastX = null;
-      lastY = null;
-    }
-
     window.addEventListener("pointermove", spawnSmoke);
-    window.addEventListener("pointerup", endSmoke);
-    window.addEventListener("pointerleave", endSmoke);
-
     animate();
   </script>
 </body>
