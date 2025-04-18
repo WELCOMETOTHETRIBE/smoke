@@ -1,44 +1,29 @@
+<!-- index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Proception-Style Fluid Smoke</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8">
+  <title>Proception Smoke</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     html, body {
       margin: 0;
       padding: 0;
-      background: #000;
       overflow: hidden;
+      background: #000;
     }
     canvas {
       display: block;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
     }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <script>
-    // Safe fallback loader for PavelDoGreat fluid sim
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/gh/PavelDoGreat/WebGL-Fluid-Simulation/script.js';
-    script.onload = () => {
-      config.SIM_RESOLUTION = 128;
-      config.DYE_RESOLUTION = 512;
-      config.BLOOM = true;
-      config.BLOOM_INTENSITY = 0.5;
-      config.BLOOM_ITERATIONS = 4;
-      config.SHADING = true;
-      config.TRANSPARENT = true;
-      config.BACK_COLOR = { r: 0, g: 0, b: 0 };
-      config.COLOR_PALETTE = [{ r: 200, g: 200, b: 200 }];
-      // Ensure initialization after script loads
-      cancelAnimationFrame(animationFrameId);
-      initFramebuffers();
-      multipleSplats(20);
-      update();
-    };
-    document.body.appendChild(script);
-  </script>
+  <script src="script.js"></script>
 </body>
 </html>
