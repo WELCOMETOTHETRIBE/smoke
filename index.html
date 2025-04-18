@@ -1,1 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Smoke Drag Effect</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      overflow: hidden;
+    }
 
+    canvas {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="smokeCanvas"></canvas>
+  <script>
+    const canvas = document.getElementById('smokeCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
+
+    window.addEventListener('resize', () => {
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = width;
+      canvas.height = height;
+    });
+
+    const particles = [];
+
+    function createParticle(x, y) {
+      return {
+        x,
+        y,
+        alpha: 1,
+        size: 30 + Math.random() * 20,
+        vx: (Math.random() - 0.5) * 1,
+        vy: (Math.random() - 0.5) * 1
+      };
+    }
+
+    function drawParticle(p) {
+      const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+      gradient.addColorStop(0, `rgba(200, 200, 200, ${p.alpha})`);
+      gradient.addColorStop(1, `rgba(0, 0, 0, 0)`);
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function animate() {
+      ctx.clearRect(0, 0, width, height);
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= 0.01;
+        if (p.alpha <= 0) {
+          particles.splice(i, 1);
+        } else {
+          drawParticle(p);
+        }
+      }
+      requestAnimationFrame(animate);
+    }
+
+    function spawnSmoke(e) {
+      const x = e.touches ? e.touches[0].clientX : e.clientX;
+      const y = e.touches ? e.touches[0].clientY : e.clientY;
+      for (let i = 0; i < 5; i++) {
+        particles.push(createParticle(x, y));
+      }
+    }
+
+    window.addEventListener('pointermove', spawnSmoke);
+    animate();
+  </script>
+</body>
+</html>
