@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Smoke Drag Effect</title>
+  <title>Smoke Trail - Turbulence Boost</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     html, body {
@@ -36,15 +36,19 @@
     });
 
     const particles = [];
+    let lastX = null, lastY = null;
 
-    function createParticle(x, y) {
+    function createParticle(x, y, vx, vy) {
+      const angle = Math.random() * 2 * Math.PI;
+      const turbulence = Math.random() * 1.5;
       return {
         x,
         y,
+        vx: vx + Math.cos(angle) * turbulence,
+        vy: vy + Math.sin(angle) * turbulence,
         alpha: 1,
-        size: 30 + Math.random() * 20,
-        vx: (Math.random() - 0.5) * 1,
-        vy: (Math.random() - 0.5) * 1
+        size: 20 + Math.random() * 25,
+        swirl: Math.random() * 0.4 - 0.2
       };
     }
 
@@ -62,9 +66,15 @@
       ctx.clearRect(0, 0, width, height);
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
+        // Add swirling effect
+        const angle = Math.atan2(p.vy, p.vx) + p.swirl;
+        const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+        p.vx = Math.cos(angle) * speed;
+        p.vy = Math.sin(angle) * speed;
+
         p.x += p.vx;
         p.y += p.vy;
-        p.alpha -= 0.01;
+        p.alpha -= 0.012;
         if (p.alpha <= 0) {
           particles.splice(i, 1);
         } else {
@@ -77,12 +87,35 @@
     function spawnSmoke(e) {
       const x = e.touches ? e.touches[0].clientX : e.clientX;
       const y = e.touches ? e.touches[0].clientY : e.clientY;
-      for (let i = 0; i < 5; i++) {
-        particles.push(createParticle(x, y));
+
+      if (lastX !== null && lastY !== null) {
+        const dx = x - lastX;
+        const dy = y - lastY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const steps = Math.max(2, Math.floor(dist / 5));
+        for (let i = 0; i < steps; i++) {
+          const t = i / steps;
+          const px = lastX + dx * t;
+          const py = lastY + dy * t;
+          const vx = dx * 0.1;
+          const vy = dy * 0.1;
+          particles.push(createParticle(px, py, vx, vy));
+        }
       }
+
+      lastX = x;
+      lastY = y;
     }
 
-    window.addEventListener('pointermove', spawnSmoke);
+    function endSmoke() {
+      lastX = null;
+      lastY = null;
+    }
+
+    window.addEventListener("pointermove", spawnSmoke);
+    window.addEventListener("pointerup", endSmoke);
+    window.addEventListener("pointerleave", endSmoke);
+
     animate();
   </script>
 </body>
