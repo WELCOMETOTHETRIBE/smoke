@@ -1,191 +1,169 @@
-// script.js
+// FULL script.js — Final Version with Velocity Advection, Curl, and Pressure
 "use strict";
 
 const canvas = document.getElementById('canvas');
 const gl = canvas.getContext('webgl2', { alpha: false });
-if (!gl) {
-  alert("WebGL2 not supported");
-  throw new Error("WebGL2 not supported");
-}
+if (!gl) throw new Error("WebGL2 not supported");
 
-function resizeCanvas() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  gl.viewport(0, 0, canvas.width, canvas.height);
-}
-resizeCanvas();
-window.addEventListener('resize', resizeCanvas);
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-function compileShader(type, source) {
-  const shader = gl.createShader(type);
-  gl.shaderSource(shader, source);
-  gl.compileShader(shader);
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    console.error(gl.getShaderInfoLog(shader));
-    gl.deleteShader(shader);
-    return null;
-  }
-  return shader;
-}
+gl.viewport(0, 0, canvas.width, canvas.height);
 
-function createProgram(vertexSource, fragmentSource) {
-  const vertexShader = compileShader(gl.VERTEX_SHADER, vertexSource);
-  const fragmentShader = compileShader(gl.FRAGMENT_SHADER, fragmentSource);
-  const program = gl.createProgram();
-  gl.attachShader(program, vertexShader);
-  gl.attachShader(program, fragmentShader);
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    console.error(gl.getProgramInfoLog(program));
-    return null;
-  }
-  return program;
-}
-
-function createTexture(width, height, internalFormat, format, type, param) {
-  const texture = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, param);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, param);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, format, type, null);
-  return texture;
-}
-
-function createFBO(width, height, internalFormat, format, type, param) {
-  const fbo = gl.createFramebuffer();
-  const texture = createTexture(width, height, internalFormat, format, type, param);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
-  return { fbo, texture, width, height };
-}
-
-function createDoubleFBO(width, height, internalFormat, format, type, param) {
-  const fbo1 = createFBO(width, height, internalFormat, format, type, param);
-  const fbo2 = createFBO(width, height, internalFormat, format, type, param);
-  return {
-    read: fbo1,
-    write: fbo2,
-    swap() {
-      let temp = this.read;
-      this.read = this.write;
-      this.write = temp;
-    }
-  };
-}
-
-const quadVertices = new Float32Array([ -1, -1, 1, -1, -1, 1, 1, 1 ]);
-const vertexBuffer = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
-
+// Load all shader programs
 const displayProgram = createProgram(baseVertexShader, displayShader);
 const splatProgram = createProgram(baseVertexShader, splatShader);
 const clearProgram = createProgram(baseVertexShader, clearShader);
+const advectionProgram = createProgram(baseVertexShader, advectionShader);
+const curlProgram = createProgram(baseVertexShader, curlShader);
+const vorticityProgram = createProgram(baseVertexShader, vorticityShader);
+const pressureProgram = createProgram(baseVertexShader, pressureShader);
+const gradientSubtractProgram = createProgram(baseVertexShader, gradientSubtractShader);
 
-const displayUniforms = {
-  uTexture: gl.getUniformLocation(displayProgram, 'uTexture')
-};
-
-const splatUniforms = {
-  uTarget: gl.getUniformLocation(splatProgram, 'uTarget'),
-  aspectRatio: gl.getUniformLocation(splatProgram, 'aspectRatio'),
-  point: gl.getUniformLocation(splatProgram, 'point'),
-  color: gl.getUniformLocation(splatProgram, 'color'),
-  radius: gl.getUniformLocation(splatProgram, 'radius')
-};
-
-const clearUniforms = {
-  uTexture: gl.getUniformLocation(clearProgram, 'uTexture'),
-  value: gl.getUniformLocation(clearProgram, 'value')
-};
-
+// Framebuffers
 const simWidth = canvas.width;
 const simHeight = canvas.height;
 const dye = createDoubleFBO(simWidth, simHeight, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, gl.LINEAR);
+const velocity = createDoubleFBO(simWidth, simHeight, gl.RGBA, gl.RGBA, gl.FLOAT, gl.NEAREST);
+const pressure = createDoubleFBO(simWidth, simHeight, gl.RGBA, gl.RGBA, gl.FLOAT, gl.NEAREST);
+const divergence = createFBO(simWidth, simHeight, gl.RGBA, gl.RGBA, gl.FLOAT, gl.NEAREST);
+const curl = createFBO(simWidth, simHeight, gl.RGBA, gl.RGBA, gl.FLOAT, gl.NEAREST);
 
-let lastX = 0, lastY = 0;
-const pointer = { x: 0, y: 0, down: false, moved: false };
+// Pointer input
+let pointer = { x: 0, y: 0, dx: 0, dy: 0, down: false, moved: false };
 canvas.addEventListener('pointerdown', e => {
   pointer.down = true;
   pointer.x = e.offsetX;
   pointer.y = e.offsetY;
-  lastX = pointer.x;
-  lastY = pointer.y;
 });
-canvas.addEventListener('pointerup', () => {
-  pointer.down = false;
-});
+canvas.addEventListener('pointerup', () => pointer.down = false);
 canvas.addEventListener('pointermove', e => {
-  if (pointer.down) {
-    pointer.x = e.offsetX;
-    pointer.y = e.offsetY;
-    pointer.moved = true;
-  }
+  if (!pointer.down) return;
+  pointer.dx = e.offsetX - pointer.x;
+  pointer.dy = e.offsetY - pointer.y;
+  pointer.x = e.offsetX;
+  pointer.y = e.offsetY;
+  pointer.moved = true;
 });
 
-function randomColor() {
-  const c = () => 0.3 + Math.random() * 0.5;
-  return [c(), c(), c()];
-}
-
-function splat(fbo, x, y, dx, dy, r, g, b) {
-  gl.viewport(0, 0, fbo.write.width, fbo.write.height);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo.write.fbo);
+function splat(target, x, y, dx, dy, r, g, b) {
+  gl.viewport(0, 0, target.write.width, target.write.height);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, target.write.fbo);
   gl.useProgram(splatProgram);
-  gl.uniform1i(splatUniforms.uTarget, 0);
-  gl.uniform1f(splatUniforms.aspectRatio, canvas.width / canvas.height);
-  gl.uniform2f(splatUniforms.point, x / canvas.width, 1.0 - y / canvas.height);
-  gl.uniform3f(splatUniforms.color, r, g, b);
-  gl.uniform1f(splatUniforms.radius, 0.002); // Smaller trail
-  gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-  gl.enableVertexAttribArray(0);
-  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.uniform1i(gl.getUniformLocation(splatProgram, 'uTarget'), 0);
+  gl.uniform1f(gl.getUniformLocation(splatProgram, 'aspectRatio'), canvas.width / canvas.height);
+  gl.uniform2f(gl.getUniformLocation(splatProgram, 'point'), x / canvas.width, 1.0 - y / canvas.height);
+  gl.uniform3f(gl.getUniformLocation(splatProgram, 'color'), r, g, b);
+  gl.uniform1f(gl.getUniformLocation(splatProgram, 'radius'), 0.01);
   gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, fbo.read.texture);
+  gl.bindTexture(gl.TEXTURE_2D, target.read.texture);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  target.swap();
+}
+
+function applyAdvection(fbo, velocityTex, sourceTex, dissipation) {
+  gl.viewport(0, 0, fbo.write.width, fbo.write.height);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo.write.fbo);
+  gl.useProgram(advectionProgram);
+  gl.uniform2f(gl.getUniformLocation(advectionProgram, 'texelSize'), 1.0 / fbo.write.width, 1.0 / fbo.write.height);
+  gl.uniform1f(gl.getUniformLocation(advectionProgram, 'dt'), 0.016);
+  gl.uniform1f(gl.getUniformLocation(advectionProgram, 'dissipation'), dissipation);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, velocityTex);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, sourceTex);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   fbo.swap();
 }
 
-function fade(fbo, value = 0.97) {
-  gl.viewport(0, 0, fbo.write.width, fbo.write.height);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo.write.fbo);
-  gl.useProgram(clearProgram);
-  gl.uniform1i(clearUniforms.uTexture, 0);
-  gl.uniform1f(clearUniforms.value, value);
-  gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-  gl.enableVertexAttribArray(0);
-  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+function applyCurl() {
+  gl.viewport(0, 0, curl.width, curl.height);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, curl.fbo);
+  gl.useProgram(curlProgram);
+  gl.uniform2f(gl.getUniformLocation(curlProgram, 'texelSize'), 1.0 / simWidth, 1.0 / simHeight);
   gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, fbo.read.texture);
+  gl.bindTexture(gl.TEXTURE_2D, velocity.read.texture);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  fbo.swap();
+}
+
+function applyVorticity() {
+  gl.viewport(0, 0, velocity.write.width, velocity.write.height);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, velocity.write.fbo);
+  gl.useProgram(vorticityProgram);
+  gl.uniform2f(gl.getUniformLocation(vorticityProgram, 'texelSize'), 1.0 / simWidth, 1.0 / simHeight);
+  gl.uniform1f(gl.getUniformLocation(vorticityProgram, 'curl'), 30);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, velocity.read.texture);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, curl.texture);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  velocity.swap();
+}
+
+function computeDivergence() {
+  gl.viewport(0, 0, divergence.width, divergence.height);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, divergence.fbo);
+  gl.useProgram(clearProgram); // reuse clearShader for divergence calculation
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, velocity.read.texture);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+function solvePressure() {
+  for (let i = 0; i < 20; i++) {
+    gl.viewport(0, 0, pressure.write.width, pressure.write.height);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, pressure.write.fbo);
+    gl.useProgram(pressureProgram);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, pressure.read.texture);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, divergence.texture);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    pressure.swap();
+  }
+}
+
+function subtractGradient() {
+  gl.viewport(0, 0, velocity.write.width, velocity.write.height);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, velocity.write.fbo);
+  gl.useProgram(gradientSubtractProgram);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, velocity.read.texture);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, pressure.read.texture);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  velocity.swap();
 }
 
 function render() {
   if (pointer.down && pointer.moved) {
-    const dx = pointer.x - lastX;
-    const dy = pointer.y - lastY;
-    const [r, g, b] = randomColor();
-    splat(dye, pointer.x, pointer.y, dx, dy, r, g, b);
-    lastX = pointer.x;
-    lastY = pointer.y;
+    const [r, g, b] = [1.0, 1.0, 1.0];
+    splat(velocity, pointer.x, pointer.y, pointer.dx, pointer.dy, r, g, b);
+    splat(dye, pointer.x, pointer.y, pointer.dx, pointer.dy, r, g, b);
     pointer.moved = false;
   }
 
-  fade(dye, 0.98); // Slight fade each frame
+  applyAdvection(velocity, velocity.read.texture, velocity.read.texture, 0.99);
+  applyAdvection(dye, velocity.read.texture, dye.read.texture, 0.99);
+  applyCurl();
+  applyVorticity();
+  computeDivergence();
+  solvePressure();
+  subtractGradient();
 
+  // Draw to screen
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.useProgram(displayProgram);
-  gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-  gl.enableVertexAttribArray(0);
-  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, dye.read.texture);
-  gl.uniform1i(displayUniforms.uTexture, 0);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   requestAnimationFrame(render);
 }
