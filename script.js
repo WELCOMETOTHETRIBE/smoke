@@ -63,41 +63,63 @@ function createFBO(width, height, internalFormat, format, type, param) {
   return { fbo, texture, width, height };
 }
 
-// Set up vertex buffer
 const quadVertices = new Float32Array([ -1, -1, 1, -1, -1, 1, 1, 1 ]);
 const vertexBuffer = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
 gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
 
-// Display shader program
-const program = createProgram(baseVertexShader, displayShader);
-gl.useProgram(program);
-const positionLoc = gl.getAttribLocation(program, 'aPosition');
-const textureLoc = gl.getUniformLocation(program, 'uTexture');
-gl.enableVertexAttribArray(positionLoc);
-gl.vertexAttribPointer(positionLoc, 2, gl.FLOAT, false, 0, 0);
+const displayProgram = createProgram(baseVertexShader, displayShader);
+const splatProgram = createProgram(baseVertexShader, splatShader);
 
-// Create framebuffer for dye
+const displayUniforms = {
+  uTexture: gl.getUniformLocation(displayProgram, 'uTexture')
+};
+
+const splatUniforms = {
+  uTarget: gl.getUniformLocation(splatProgram, 'uTarget'),
+  aspectRatio: gl.getUniformLocation(splatProgram, 'aspectRatio'),
+  point: gl.getUniformLocation(splatProgram, 'point'),
+  color: gl.getUniformLocation(splatProgram, 'color'),
+  radius: gl.getUniformLocation(splatProgram, 'radius')
+};
+
 const simWidth = canvas.width;
 const simHeight = canvas.height;
 const dye = createFBO(simWidth, simHeight, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, gl.LINEAR);
 
-// Pointer state
 const pointer = { x: 0, y: 0, down: false };
 canvas.addEventListener('pointerdown', e => { pointer.down = true; pointer.x = e.offsetX; pointer.y = e.offsetY; });
 canvas.addEventListener('pointerup', () => pointer.down = false);
 canvas.addEventListener('pointermove', e => { if (pointer.down) { pointer.x = e.offsetX; pointer.y = e.offsetY; } });
 
-// Render loop
-function render() {
-  gl.viewport(0, 0, canvas.width, canvas.height);
-  gl.useProgram(program);
+function splat(fbo, x, y, dx, dy, r, g, b) {
+  gl.viewport(0, 0, fbo.width, fbo.height);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo.fbo);
+  gl.useProgram(splatProgram);
+  gl.uniform1i(splatUniforms.uTarget, 0);
+  gl.uniform1f(splatUniforms.aspectRatio, canvas.width / canvas.height);
+  gl.uniform2f(splatUniforms.point, x / canvas.width, 1.0 - y / canvas.height);
+  gl.uniform3f(splatUniforms.color, r, g, b);
+  gl.uniform1f(splatUniforms.radius, 0.01);
   gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-  gl.enableVertexAttribArray(positionLoc);
-  gl.vertexAttribPointer(positionLoc, 2, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+function render() {
+  if (pointer.down) {
+    splat(dye, pointer.x, pointer.y, 0, 0, 1.0, 1.0, 1.0);
+  }
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.useProgram(displayProgram);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, dye.texture);
-  gl.uniform1i(textureLoc, 0);
+  gl.uniform1i(displayUniforms.uTexture, 0);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   requestAnimationFrame(render);
 }
