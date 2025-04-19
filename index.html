@@ -2,29 +2,165 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Proception Fluid Simulation</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fluid Simulation</title>
   <style>
     html, body {
       margin: 0;
-      padding: 0;
       overflow: hidden;
       background: black;
     }
     canvas {
       display: block;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
     }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <script src="gl.js"></script>
-  <script src="shaders.js"></script>
-  <script src="script.js"></script>
+  <script id="baseVertexShader" type="x-shader/x-vertex">
+    attribute vec2 aPosition;
+    varying vec2 vUv;
+    void main() {
+      vUv = aPosition * 0.5 + 0.5;
+      gl_Position = vec4(aPosition, 0.0, 1.0);
+    }
+  </script>
+  <script id="displayShader" type="x-shader/x-fragment">
+    precision mediump float;
+    varying vec2 vUv;
+    uniform sampler2D uTexture;
+    void main() {
+      gl_FragColor = texture2D(uTexture, vUv);
+    }
+  </script>
+  <script id="splatShader" type="x-shader/x-fragment">
+    precision mediump float;
+    varying vec2 vUv;
+    uniform sampler2D uTarget;
+    uniform float aspectRatio;
+    uniform vec2 point;
+    uniform vec3 color;
+    uniform float radius;
+    void main() {
+      vec2 p = vUv;
+      vec2 diff = p - point;
+      diff.x *= aspectRatio;
+      float dist = dot(diff, diff);
+      float influence = exp(-dist / radius);
+      vec4 base = texture2D(uTarget, vUv);
+      gl_FragColor = base + vec4(color * influence, 1.0);
+    }
+  </script>
+  <script>
+    const canvas = document.getElementById("canvas");
+    const gl = canvas.getContext("webgl2", { alpha: false });
+    if (!gl) throw new Error("WebGL2 not supported");
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+
+    function compileShader(type, source) {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        throw new Error(gl.getShaderInfoLog(shader));
+      }
+      return shader;
+    }
+
+    function createProgram(vertexSource, fragmentSource) {
+      const program = gl.createProgram();
+      const vshader = compileShader(gl.VERTEX_SHADER, vertexSource);
+      const fshader = compileShader(gl.FRAGMENT_SHADER, fragmentSource);
+      gl.attachShader(program, vshader);
+      gl.attachShader(program, fshader);
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        throw new Error(gl.getProgramInfoLog(program));
+      }
+      return program;
+    }
+
+    const vertexShaderSource = document.getElementById("baseVertexShader").textContent;
+    const fragmentShaderSource = document.getElementById("displayShader").textContent;
+    const splatShaderSource = document.getElementById("splatShader").textContent;
+
+    const displayProgram = createProgram(vertexShaderSource, fragmentShaderSource);
+    const splatProgram = createProgram(vertexShaderSource, splatShaderSource);
+
+    const quad = new Float32Array([ -1, -1, 1, -1, -1, 1, 1, 1 ]);
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+
+    const position = gl.getAttribLocation(displayProgram, "aPosition");
+    gl.enableVertexAttribArray(position);
+    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+
+    function createTexture(width, height) {
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      return tex;
+    }
+
+    function createFBO(width, height) {
+      const tex = createTexture(width, height);
+      const fbo = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+      return { fbo, texture: tex };
+    }
+
+    const fbo = createFBO(canvas.width, canvas.height);
+
+    const pointer = { x: 0, y: 0, down: false };
+    canvas.addEventListener("pointerdown", e => {
+      pointer.down = true;
+      pointer.x = e.offsetX;
+      pointer.y = e.offsetY;
+    });
+    canvas.addEventListener("pointerup", () => pointer.down = false);
+    canvas.addEventListener("pointermove", e => {
+      if (pointer.down) {
+        pointer.x = e.offsetX;
+        pointer.y = e.offsetY;
+        splat(pointer.x, pointer.y);
+      }
+    });
+
+    function splat(x, y) {
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo.fbo);
+      gl.useProgram(splatProgram);
+      gl.uniform1i(gl.getUniformLocation(splatProgram, 'uTarget'), 0);
+      gl.uniform1f(gl.getUniformLocation(splatProgram, 'aspectRatio'), canvas.width / canvas.height);
+      gl.uniform2f(gl.getUniformLocation(splatProgram, 'point'), x / canvas.width, 1.0 - y / canvas.height);
+      gl.uniform3f(gl.getUniformLocation(splatProgram, 'color'), Math.random(), Math.random(), Math.random());
+      gl.uniform1f(gl.getUniformLocation(splatProgram, 'radius'), 0.01);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, fbo.texture);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    }
+
+    function render() {
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.useProgram(displayProgram);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, fbo.texture);
+      gl.uniform1i(gl.getUniformLocation(displayProgram, 'uTexture'), 0);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      requestAnimationFrame(render);
+    }
+
+    render();
+  </script>
 </body>
 </html>
