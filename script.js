@@ -1,4 +1,4 @@
-// script.js — updated with fixed FBO logic
+// script.js — patched to avoid framebuffer-texture feedback loop
 "use strict";
 
 const canvas = document.getElementById("canvas");
@@ -121,8 +121,8 @@ canvas.addEventListener("pointermove", e => {
 });
 
 function splat(target, x, y, dx, dy, r, g, b) {
-  gl.viewport(0, 0, target.write.width, target.write.height);
   gl.bindFramebuffer(gl.FRAMEBUFFER, target.write.fbo);
+  gl.viewport(0, 0, target.write.width, target.write.height);
   gl.useProgram(programs.splat);
   gl.uniform1f(gl.getUniformLocation(programs.splat, 'aspectRatio'), canvas.width / canvas.height);
   gl.uniform2f(gl.getUniformLocation(programs.splat, 'point'), x / canvas.width, 1.0 - y / canvas.height);
@@ -132,6 +132,7 @@ function splat(target, x, y, dx, dy, r, g, b) {
   gl.bindTexture(gl.TEXTURE_2D, target.read.texture);
   bindQuad(programs.splat);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   target.swap();
 }
 
