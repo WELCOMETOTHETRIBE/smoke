@@ -58,9 +58,21 @@ function createFBO(width, height, internalFormat, format, type, param) {
   const texture = createTexture(width, height, internalFormat, format, type, param);
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
-  gl.viewport(0, 0, width, height);
-  gl.clear(gl.COLOR_BUFFER_BIT);
   return { fbo, texture, width, height };
+}
+
+function createDoubleFBO(width, height, internalFormat, format, type, param) {
+  const fbo1 = createFBO(width, height, internalFormat, format, type, param);
+  const fbo2 = createFBO(width, height, internalFormat, format, type, param);
+  return {
+    read: fbo1,
+    write: fbo2,
+    swap() {
+      let temp = this.read;
+      this.read = this.write;
+      this.write = temp;
+    }
+  };
 }
 
 const quadVertices = new Float32Array([ -1, -1, 1, -1, -1, 1, 1, 1 ]);
@@ -85,40 +97,74 @@ const splatUniforms = {
 
 const simWidth = canvas.width;
 const simHeight = canvas.height;
-const dye = createFBO(simWidth, simHeight, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, gl.LINEAR);
+const dye = createDoubleFBO(simWidth, simHeight, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, gl.LINEAR);
 
+let lastX = 0, lastY = 0;
 const pointer = { x: 0, y: 0, down: false };
-canvas.addEventListener('pointerdown', e => { pointer.down = true; pointer.x = e.offsetX; pointer.y = e.offsetY; });
+canvas.addEventListener('pointerdown', e => {
+  pointer.down = true; pointer.x = e.offsetX; pointer.y = e.offsetY;
+  lastX = pointer.x; lastY = pointer.y;
+});
 canvas.addEventListener('pointerup', () => pointer.down = false);
-canvas.addEventListener('pointermove', e => { if (pointer.down) { pointer.x = e.offsetX; pointer.y = e.offsetY; } });
+canvas.addEventListener('pointermove', e => {
+  if (pointer.down) {
+    lastX = pointer.x; lastY = pointer.y;
+    pointer.x = e.offsetX; pointer.y = e.offsetY;
+  }
+});
+
+function randomColor() {
+  const c = () => 0.5 + Math.random() * 0.5;
+  return [c(), c(), c()];
+}
 
 function splat(fbo, x, y, dx, dy, r, g, b) {
-  gl.viewport(0, 0, fbo.width, fbo.height);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo.fbo);
+  gl.viewport(0, 0, fbo.write.width, fbo.write.height);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo.write.fbo);
   gl.useProgram(splatProgram);
   gl.uniform1i(splatUniforms.uTarget, 0);
   gl.uniform1f(splatUniforms.aspectRatio, canvas.width / canvas.height);
   gl.uniform2f(splatUniforms.point, x / canvas.width, 1.0 - y / canvas.height);
   gl.uniform3f(splatUniforms.color, r, g, b);
-  gl.uniform1f(splatUniforms.radius, 0.01);
+  gl.uniform1f(splatUniforms.radius, 0.015);
   gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, fbo.read.texture);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  fbo.swap();
+}
+
+function idleSmoke() {
+  for (let i = 0; i < 2; i++) {
+    const x = Math.random() * canvas.width;
+    const y = Math.random() * canvas.height;
+    const [r, g, b] = randomColor();
+    splat(dye, x, y, 0, 0, r, g, b);
+  }
 }
 
 function render() {
   if (pointer.down) {
-    splat(dye, pointer.x, pointer.y, 0, 0, 1.0, 1.0, 1.0);
+    const dx = pointer.x - lastX;
+    const dy = pointer.y - lastY;
+    const [r, g, b] = randomColor();
+    splat(dye, pointer.x, pointer.y, dx, dy, r, g, b);
+    lastX = pointer.x;
+    lastY = pointer.y;
+  } else if (Math.random() < 0.05) {
+    idleSmoke();
   }
+
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.useProgram(displayProgram);
   gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, dye.texture);
+  gl.bindTexture(gl.TEXTURE_2D, dye.read.texture);
   gl.uniform1i(displayUniforms.uTexture, 0);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   requestAnimationFrame(render);
