@@ -82,6 +82,7 @@ gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
 
 const displayProgram = createProgram(baseVertexShader, displayShader);
 const splatProgram = createProgram(baseVertexShader, splatShader);
+const clearProgram = createProgram(baseVertexShader, clearShader);
 
 const displayUniforms = {
   uTexture: gl.getUniformLocation(displayProgram, 'uTexture')
@@ -93,6 +94,11 @@ const splatUniforms = {
   point: gl.getUniformLocation(splatProgram, 'point'),
   color: gl.getUniformLocation(splatProgram, 'color'),
   radius: gl.getUniformLocation(splatProgram, 'radius')
+};
+
+const clearUniforms = {
+  uTexture: gl.getUniformLocation(clearProgram, 'uTexture'),
+  value: gl.getUniformLocation(clearProgram, 'value')
 };
 
 const simWidth = canvas.width;
@@ -132,7 +138,23 @@ function splat(fbo, x, y, dx, dy, r, g, b) {
   gl.uniform1f(splatUniforms.aspectRatio, canvas.width / canvas.height);
   gl.uniform2f(splatUniforms.point, x / canvas.width, 1.0 - y / canvas.height);
   gl.uniform3f(splatUniforms.color, r, g, b);
-  gl.uniform1f(splatUniforms.radius, 0.01);
+  gl.uniform1f(splatUniforms.radius, 0.002); // Smaller trail
+  gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, fbo.read.texture);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  fbo.swap();
+}
+
+function fade(fbo, value = 0.97) {
+  gl.viewport(0, 0, fbo.write.width, fbo.write.height);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo.write.fbo);
+  gl.useProgram(clearProgram);
+  gl.uniform1i(clearUniforms.uTexture, 0);
+  gl.uniform1f(clearUniforms.value, value);
   gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
@@ -153,6 +175,8 @@ function render() {
     lastY = pointer.y;
     pointer.moved = false;
   }
+
+  fade(dye, 0.98); // Slight fade each frame
 
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.useProgram(displayProgram);
