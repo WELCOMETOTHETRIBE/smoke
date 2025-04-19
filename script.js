@@ -1,9 +1,10 @@
-// script.js
+// script.js — updated with fixed FBO logic
 "use strict";
 
 const canvas = document.getElementById("canvas");
 const gl = canvas.getContext("webgl2", { alpha: false });
 if (!gl) throw new Error("WebGL2 not supported");
+gl.getExtension("EXT_color_buffer_float");
 
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
@@ -32,18 +33,34 @@ function createProgram(vSource, fSource) {
   return program;
 }
 
-function createFBO(w, h, internalFormat, format, type, param) {
+function getSupportedInternalFormat(type) {
+  if (type === gl.FLOAT) return gl.RGBA16F;
+  return gl.RGBA8;
+}
+
+function createTexture(w, h, internalFormat, format, type, param) {
   const tex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, param);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, param);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, w, h, 0, format, type, null);
+  const sizedFormat = getSupportedInternalFormat(type);
+  gl.texImage2D(gl.TEXTURE_2D, 0, sizedFormat, w, h, 0, format, type, null);
+  return tex;
+}
+
+function createFBO(w, h, internalFormat, format, type, param) {
+  if (w === 0 || h === 0) throw new Error("FBO dimensions must be non-zero");
+  const texture = createTexture(w, h, internalFormat, format, type, param);
   const fbo = gl.createFramebuffer();
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-  return { fbo, texture: tex, width: w, height: h };
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+  const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+  if (status !== gl.FRAMEBUFFER_COMPLETE) {
+    throw new Error("Framebuffer is incomplete: 0x" + status.toString(16));
+  }
+  return { fbo, texture, width: w, height: h };
 }
 
 function createDoubleFBO(w, h, internalFormat, format, type, param) {
