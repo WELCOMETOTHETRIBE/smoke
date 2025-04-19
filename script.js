@@ -100,21 +100,27 @@ const simHeight = canvas.height;
 const dye = createDoubleFBO(simWidth, simHeight, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, gl.LINEAR);
 
 let lastX = 0, lastY = 0;
-const pointer = { x: 0, y: 0, down: false };
+const pointer = { x: 0, y: 0, down: false, moved: false };
 canvas.addEventListener('pointerdown', e => {
-  pointer.down = true; pointer.x = e.offsetX; pointer.y = e.offsetY;
-  lastX = pointer.x; lastY = pointer.y;
+  pointer.down = true;
+  pointer.x = e.offsetX;
+  pointer.y = e.offsetY;
+  lastX = pointer.x;
+  lastY = pointer.y;
 });
-canvas.addEventListener('pointerup', () => pointer.down = false);
+canvas.addEventListener('pointerup', () => {
+  pointer.down = false;
+});
 canvas.addEventListener('pointermove', e => {
   if (pointer.down) {
-    lastX = pointer.x; lastY = pointer.y;
-    pointer.x = e.offsetX; pointer.y = e.offsetY;
+    pointer.x = e.offsetX;
+    pointer.y = e.offsetY;
+    pointer.moved = true;
   }
 });
 
 function randomColor() {
-  const c = () => 0.5 + Math.random() * 0.5;
+  const c = () => 0.3 + Math.random() * 0.5;
   return [c(), c(), c()];
 }
 
@@ -126,7 +132,7 @@ function splat(fbo, x, y, dx, dy, r, g, b) {
   gl.uniform1f(splatUniforms.aspectRatio, canvas.width / canvas.height);
   gl.uniform2f(splatUniforms.point, x / canvas.width, 1.0 - y / canvas.height);
   gl.uniform3f(splatUniforms.color, r, g, b);
-  gl.uniform1f(splatUniforms.radius, 0.015);
+  gl.uniform1f(splatUniforms.radius, 0.01);
   gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
@@ -137,25 +143,15 @@ function splat(fbo, x, y, dx, dy, r, g, b) {
   fbo.swap();
 }
 
-function idleSmoke() {
-  for (let i = 0; i < 2; i++) {
-    const x = Math.random() * canvas.width;
-    const y = Math.random() * canvas.height;
-    const [r, g, b] = randomColor();
-    splat(dye, x, y, 0, 0, r, g, b);
-  }
-}
-
 function render() {
-  if (pointer.down) {
+  if (pointer.down && pointer.moved) {
     const dx = pointer.x - lastX;
     const dy = pointer.y - lastY;
     const [r, g, b] = randomColor();
     splat(dye, pointer.x, pointer.y, dx, dy, r, g, b);
     lastX = pointer.x;
     lastY = pointer.y;
-  } else if (Math.random() < 0.05) {
-    idleSmoke();
+    pointer.moved = false;
   }
 
   gl.viewport(0, 0, canvas.width, canvas.height);
